@@ -41,5 +41,3 @@ initSchema().then(() => {
     });
 });
 
-console.log("nfudbjv");
-console.log("jcsd");
