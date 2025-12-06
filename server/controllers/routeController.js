@@ -9,6 +9,19 @@ exports.getRoute = async (req, res) => {
         return res.status(400).json({ error: "Origin and destination required" });
     }
 
+    // Restrict routing to a Bengaluru city bounding box to avoid far-away paths.
+    // Approx bounds: lat 12.8–13.2, lng 77.4–77.8
+    const isInsideBangalore = (pt) => {
+        return (
+            pt.lat >= 12.8 && pt.lat <= 13.2 &&
+            pt.lng >= 77.4 && pt.lng <= 77.8
+        );
+    };
+
+    if (!isInsideBangalore(origin) || !isInsideBangalore(destination)) {
+        return res.status(400).json({ error: "Routing is currently supported only within Bengaluru city bounds." });
+    }
+
     try {
         // 1. Fetch Real Routes from OSRM (Public API)
         // coordinates format: {lon},{lat};{lon},{lat}
@@ -24,26 +37,64 @@ exports.getRoute = async (req, res) => {
         }
 
         // 2. Evaluate Each Route
-        const evaluatedRoutes = await Promise.all(routes.map(async (route) => {
+        const evaluatedRoutes = await Promise.all(routes.map(async (route, idx) => {
             const decodedCoords = polyline.decode(route.geometry).map(pt => ({ lat: pt[0], lng: pt[1] })); // [lat, lng]
             // Pass the raw OSRM route as well so we can factor in traffic density (via speed)
             const riskStats = await calculateDetailedRisk(decodedCoords, route);
 
-            // Normalize Safety Score (0-100)
-            // dangerScore is roughly 0–70 (user incidents + PDF crime stats)
-            // safetyBoost is roughly 0–20 (police, hospitals, CCTV, lights)
-            // We subtract danger directly and add safety so that typical routes
-            // end up somewhere between 30–90 instead of collapsing to 0.
-            const normalizedDanger = Math.min(100, riskStats.dangerScore || 0);
-            const normalizedSafety = Math.min(30, riskStats.safetyBoost || 0);
+            // --- Weighted safety score (0–100) ---
+            // Explicitly combine:
+            //  - crimeRateScore (from crime_statistics in DB)
+            //  - userReportScore (from recent user reports table)
+            //  - infrastructureScore (streetlights, police, hospitals, CCTV)
+            // into a single 0–100 safety score.
+            const CRIME_MAX = 40; // cap used when computing crimeRateScore
+            const USER_MAX = 30;  // cap used when computing userReportScore
+            const INFRA_MAX = 20; // cap used when computing infrastructureScore
 
-            let rawScore = 100 - normalizedDanger + normalizedSafety;
+            const crimeRisk = Math.min(1, (riskStats.crimeRateScore || 0) / CRIME_MAX);        // 0 = no crime, 1 = very high
+            const userRisk = Math.min(1, (riskStats.userReportScore || 0) / USER_MAX);         // 0 = no incidents, 1 = many recent incidents
+            const infraSafety = Math.min(1, (riskStats.infrastructureScore || 0) / INFRA_MAX); // 0 = no infra, 1 = dense infra
+
+            // Convert to components where higher is better
+            const crimeComponent = 1 - crimeRisk; // more crime ⇒ lower value
+            const userComponent = 1 - userRisk;   // more incidents ⇒ lower value
+            const infraComponent = infraSafety;   // more infra ⇒ higher value
+
+            // Final score: weighted average in [0, 100]
+            //  - 50% weight: infrastructure density (streetlights, police, hospitals, CCTV)
+            //  - 30% weight: official crime statistics from DB
+            //  - 20% weight: user-reported incidents along the route
+            let rawScore = 100 * (
+                0.5 * infraComponent +
+                0.3 * crimeComponent +
+                0.2 * userComponent
+            );
+
             rawScore = Math.max(0, Math.min(100, rawScore));
+            const score = parseFloat(rawScore.toFixed(0));
+
+            // Debug log to see how OSRM routes differ and how safety reacts to DB data
+            console.log('[RouteCandidate]', {
+                idx,
+                distanceKm: (route.distance / 1000).toFixed(2),
+                durationMin: (route.duration / 60).toFixed(1),
+                safetyScore: score,
+                crimeRateScore: riskStats.crimeRateScore,
+                userReportScore: riskStats.userReportScore,
+                infrastructureScore: riskStats.infrastructureScore,
+                trafficRiskScore: riskStats.trafficRiskScore,
+                userIncidents: riskStats.details?.userIncidents,
+                policeStations: riskStats.details?.policeStations,
+                hospitals: riskStats.details?.hospitals,
+                streetlights: riskStats.details?.streetlights,
+                cctvCameras: riskStats.details?.cctvCameras
+            });
 
             return {
                 route,
                 coords: decodedCoords,
-                score: parseFloat(rawScore.toFixed(0)),
+                score,
                 stats: riskStats
             };
         }));
@@ -54,10 +105,23 @@ exports.getRoute = async (req, res) => {
 
         let bestRoute;
         if (mode === 'safest') {
-            evaluatedRoutes.sort((a, b) => b.score - a.score); // Descending score
+            // Primary: sort by safetyScore (higher is safer)
+            evaluatedRoutes.sort((a, b) => {
+                if (b.score !== a.score) return b.score - a.score;
+
+                // Tie-breaker 1: lower traffic risk is safer
+                const aTraffic = a.stats?.trafficRiskScore ?? 0;
+                const bTraffic = b.stats?.trafficRiskScore ?? 0;
+                if (aTraffic !== bTraffic) return aTraffic - bTraffic;
+
+                // Tie-breaker 2: if everything else is identical, slightly prefer
+                // the route with more distance (often more detour / away from main roads)
+                // as a weak proxy for safety when data is flat.
+                return b.route.distance - a.route.distance;
+            });
             bestRoute = evaluatedRoutes[0];
         } else {
-            // Shortest logic
+            // Fastest: strictly lowest duration (time)
             evaluatedRoutes.sort((a, b) => a.route.duration - b.route.duration);
             bestRoute = evaluatedRoutes[0];
         }

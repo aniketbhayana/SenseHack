@@ -40,9 +40,15 @@ export default function MapView({
 
     // Direction State
     const [points, setPoints] = useState({ start: null, end: null });
-    const [pickingMode, setPickingMode] = useState(null); // 'start' | 'end'
+    const [pickingMode, setPickingMode] = useState(null); // kept for report mode / future map-pick use
     const [routes, setRoutes] = useState({ safest: null, shortest: null });
     const [loadingRoutes, setLoadingRoutes] = useState(false);
+
+    // Address search state for start/end instead of only map clicks
+    const [startQuery, setStartQuery] = useState("");
+    const [endQuery, setEndQuery] = useState("");
+    const [geocodeLoading, setGeocodeLoading] = useState({ start: false, end: false });
+    const [geocodeError, setGeocodeError] = useState("");
 
     const mapRef = useRef(null);
     const heatLayerRef = useRef(null);
@@ -116,15 +122,57 @@ export default function MapView({
 
     const handleMapPick = (loc) => {
         if (onReportPick) {
+            // In report mode, clicks are used to place a report.
             onReportPick(loc);
         } else if (pickingMode === 'start') {
+            // Optional: keep ability to refine start via map click.
             setPoints(p => ({ ...p, start: loc }));
             setPickingMode(null);
         } else if (pickingMode === 'end') {
+            // Optional: keep ability to refine destination via map click.
             setPoints(p => ({ ...p, end: loc }));
             setPickingMode(null);
         }
     };
+
+    // Simple geocoding using OpenStreetMap Nominatim API.
+    async function geocodeAddress(query) {
+        // Restrict geocoding to Bengaluru by providing a bounding box (viewbox)
+        // and bounded=1 so results stay inside this area.
+        const viewbox = '77.4,13.2,77.8,12.8'; // left,top,right,bottom around Bengaluru
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&viewbox=${viewbox}&bounded=1`;
+        const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) throw new Error('Geocoding failed');
+        const data = await resp.json();
+        if (!Array.isArray(data) || data.length === 0) {
+            throw new Error('No results found for that location');
+        }
+        const { lat, lon } = data[0];
+        return { lat: parseFloat(lat), lng: parseFloat(lon) };
+    }
+
+    async function handleGeocode(which) {
+        const query = which === 'start' ? startQuery : endQuery;
+        if (!query.trim()) return;
+
+        setGeocodeError("");
+        setGeocodeLoading(prev => ({ ...prev, [which]: true }));
+
+        try {
+            const loc = await geocodeAddress(query);
+            setPoints(p => ({ ...p, [which]: loc }));
+
+            const map = mapRef.current;
+            if (map) {
+                map.setView([loc.lat, loc.lng], 15);
+            }
+        } catch (err) {
+            console.error('Geocode error', err);
+            setGeocodeError('Could not find that location. Try a more specific address.');
+        } finally {
+            setGeocodeLoading(prev => ({ ...prev, [which]: false }));
+        }
+    }
 
     const osmTileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
@@ -139,27 +187,69 @@ export default function MapView({
                     </h3>
 
                     <div className="space-y-3">
-                        {/* Start Input */}
-                        <div className="flex gap-2 items-center">
-                            <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                            <button
-                                onClick={() => setPickingMode('start')}
-                                className={`flex-1 text-left text-sm p-2 rounded border ${pickingMode === 'start' ? 'ring-2 ring-blue-500 border-blue-500' : 'border-slate-200 hover:bg-slate-50'}`}
-                            >
-                                {points.start ? `Start: ${points.start.lat.toFixed(4)}, ...` : 'Click to Set Start'}
-                            </button>
+                        {/* Start Input (address search) */}
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                                <span className="text-xs font-medium text-slate-700">Start</span>
+                            </div>
+                            <div className="flex gap-2 items-center">
+                                <input
+                                    type="text"
+                                    value={startQuery}
+                                    onChange={(e) => setStartQuery(e.target.value)}
+                                    placeholder="Type start location (e.g. MG Road, Bengaluru)"
+                                    className="flex-1 text-sm p-2 rounded border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                                <button
+                                    onClick={() => handleGeocode('start')}
+                                    disabled={geocodeLoading.start}
+                                    className="text-xs px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                                >
+                                    {geocodeLoading.start ? 'Locating...' : 'Set'}
+                                </button>
+                            </div>
+                            {points.start && (
+                                <div className="text-xs text-slate-500">
+                                    Selected: {points.start.lat.toFixed(4)}, {points.start.lng.toFixed(4)}
+                                </div>
+                            )}
                         </div>
 
-                        {/* End Input */}
-                        <div className="flex gap-2 items-center">
-                            <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                            <button
-                                onClick={() => setPickingMode('end')}
-                                className={`flex-1 text-left text-sm p-2 rounded border ${pickingMode === 'end' ? 'ring-2 ring-red-500 border-red-500' : 'border-slate-200 hover:bg-slate-50'}`}
-                            >
-                                {points.end ? `Dest: ${points.end.lat.toFixed(4)}, ...` : 'Click to Set Destination'}
-                            </button>
+                        {/* End Input (address search) */}
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                                <span className="text-xs font-medium text-slate-700">Destination</span>
+                            </div>
+                            <div className="flex gap-2 items-center">
+                                <input
+                                    type="text"
+                                    value={endQuery}
+                                    onChange={(e) => setEndQuery(e.target.value)}
+                                    placeholder="Type destination (e.g. Indiranagar Metro)"
+                                    className="flex-1 text-sm p-2 rounded border border-slate-200 focus:outline-none focus:ring-2 focus:ring-red-500"
+                                />
+                                <button
+                                    onClick={() => handleGeocode('end')}
+                                    disabled={geocodeLoading.end}
+                                    className="text-xs px-3 py-2 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                                >
+                                    {geocodeLoading.end ? 'Locating...' : 'Set'}
+                                </button>
+                            </div>
+                            {points.end && (
+                                <div className="text-xs text-slate-500">
+                                    Selected: {points.end.lat.toFixed(4)}, {points.end.lng.toFixed(4)}
+                                </div>
+                            )}
                         </div>
+
+                        {geocodeError && (
+                            <div className="text-xs text-red-500 mt-1">
+                                {geocodeError}
+                            </div>
+                        )}
                     </div>
 
                     {/* Results */}
@@ -192,7 +282,7 @@ export default function MapView({
                     )}
 
                     <div className="mt-3 text-xs text-slate-400">
-                        {pickingMode ? 'Click on map to select location...' : 'Select start and end points.'}
+                        Type start and destination above to calculate safest and fastest routes.
                     </div>
                 </div>
             )}
