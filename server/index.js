@@ -40,3 +40,6 @@ initSchema().then(() => {
         console.log(`Server running on http://localhost:${PORT}`);
     });
 });
+
+console.log("nfudbjv");
+console.log("jcsd");
