@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Map, AlertTriangle, BarChart3, Shield } from 'lucide-react';
+import { Map, AlertTriangle, BarChart3 } from 'lucide-react';
 
 export default function Layout({ children }) {
     const navItems = [
@@ -10,36 +10,38 @@ export default function Layout({ children }) {
     ];
 
     return (
-        <div className="flex h-screen w-screen bg-slate-50">
-            {/* Sidebar */}
-            <aside className="w-16 md:w-64 bg-slate-900 text-white flex flex-col flex-shrink-0 transition-all duration-300">
-                <div className="h-16 flex items-center justify-center md:justify-start md:px-6 border-b border-slate-700">
-                    <Shield className="text-blue-400" size={28} />
-                    <span className="ml-3 font-bold text-lg hidden md:block">SafeRoute</span>
+        <div className="flex flex-col h-screen w-screen bg-slate-50">
+            {/* Top Navigation Bar */}
+            <header className="h-16 bg-[#005B65] text-white flex items-center justify-between px-4 md:px-8 shadow-xl z-20 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                    <img src="/logo.svg" alt="SafeRoute Logo" className="w-7 h-7" />
+                    <span className="font-bold text-lg tracking-wide" style={{ fontFamily: "'Outfit', sans-serif" }}>SafeRoute</span>
                 </div>
 
-                <nav className="flex-1 py-6 flex flex-col gap-2 px-2">
+                <nav className="flex items-center gap-1 md:gap-4">
                     {navItems.map((item) => (
                         <NavLink
                             key={item.to}
                             to={item.to}
                             className={({ isActive }) =>
-                                `flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive
-                                    ? "bg-blue-600 text-white shadow-lg"
-                                    : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                                `flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 ${isActive
+                                    ? "bg-[#B4D9DD] text-[#005B65] shadow-md font-semibold font-sans"
+                                    : "text-[#B4D9DD]/80 hover:bg-[#90CB99]/20 hover:text-white"
                                 }`
                             }
                         >
-                            {item.icon}
-                            <span className="hidden md:block font-medium">{item.label}</span>
+                            <div className={`${({ isActive }) => isActive ? "text-[#005B65]" : "text-current"}`}>
+                                {item.icon}
+                            </div>
+                            <span className="hidden md:block text-sm tracking-wide">{item.label}</span>
                         </NavLink>
                     ))}
                 </nav>
 
-                <div className="p-4 border-t border-slate-800 text-xs text-slate-500 text-center md:text-left">
-                    <span className="hidden md:block">v1.0.0 Alpha</span>
+                <div className="hidden md:block text-xs text-[#B4D9DD]/60 font-medium">
+                    v1.0.0
                 </div>
-            </aside>
+            </header>
 
             {/* Main Content */}
             <main className="flex-1 relative overflow-hidden flex flex-col">

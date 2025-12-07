@@ -1,0 +1,11 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- White background -->
+  <rect width="32" height="32" fill="white"/>
+  <!-- Shield background (dark teal) -->
+  <path d="M16 2L4 7V15C4 22.5 9.5 28.5 16 30C22.5 28.5 28 22.5 28 15V7L16 2Z" fill="#005B65"/>
+  <!-- Location pin (white) -->
+  <path d="M16 9C13.24 9 11 11.24 11 14C11 16.76 16 23 16 23C16 23 21 16.76 21 14C21 11.24 18.76 9 16 9ZM16 16C14.9 16 14 15.1 14 14C14 12.9 14.9 12 16 12C17.1 12 18 12.9 18 14C18 15.1 17.1 16 16 16Z" fill="white"/>
+  <!-- Pin dot (dark teal) -->
+  <circle cx="16" cy="14" r="1.5" fill="#005B65"/>
+</svg>
+

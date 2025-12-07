@@ -43,5 +43,19 @@ export const api = {
         const resp = await fetch('/api/reports/stats');
         if (!resp.ok) throw new Error('Failed to fetch stats');
         return resp.json();
+    },
+
+    // GET /api/stats/infrastructure/nearby?lat=..&lng=..&radius=..&type=..
+    getNearbyInfrastructure: async ({ lat, lng, radius = 3000, type }) => {
+        const params = new URLSearchParams({
+            lat: String(lat),
+            lng: String(lng),
+            radius: String(radius)
+        });
+        if (type) params.append('type', type);
+
+        const resp = await fetch(`/api/stats/infrastructure/nearby?${params.toString()}`);
+        if (!resp.ok) throw new Error('Failed to fetch infrastructure');
+        return resp.json();
     }
 };

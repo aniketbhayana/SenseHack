@@ -38,6 +38,10 @@ export default function MapView({
     const [reports, setReports] = useState([]);
     const [heatPoints, setHeatPoints] = useState([]);
 
+    // Infrastructure markers (police stations, hospitals)
+    const [policeInfra, setPoliceInfra] = useState([]);
+    const [hospitalInfra, setHospitalInfra] = useState([]);
+
     // Direction State
     const [points, setPoints] = useState({ start: null, end: null });
     const [pickingMode, setPickingMode] = useState(null); // kept for report mode / future map-pick use
@@ -53,7 +57,7 @@ export default function MapView({
     const mapRef = useRef(null);
     const heatLayerRef = useRef(null);
 
-    // Load reports & Heatmap
+    // Load reports & Heatmap + nearby police/hospitals for map context
     useEffect(() => {
         (async function fetchInitial() {
             try {
@@ -72,6 +76,15 @@ export default function MapView({
                     (r.severity / 5)
                 ]);
                 setHeatPoints(pts);
+
+                // Load nearby infrastructure (police + hospitals) around initial center
+                const { lat, lng } = initialCenter;
+                const [police, hospitals] = await Promise.all([
+                    api.getNearbyInfrastructure({ lat, lng, radius: 4000, type: 'police' }),
+                    api.getNearbyInfrastructure({ lat, lng, radius: 4000, type: 'hospital' })
+                ]);
+                setPoliceInfra(police);
+                setHospitalInfra(hospitals);
             } catch (err) { console.error(err); }
         })();
     }, []);
@@ -176,6 +189,9 @@ export default function MapView({
 
     const osmTileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
+    // Convenience reference for safety details on the selected safest route
+    const safestDetails = routes.safest?.riskDetails?.details;
+
     return (
         <div className="w-full h-full flex flex-col relative">
 
@@ -266,6 +282,20 @@ export default function MapView({
                                     <span className="flex items-center gap-1"><Clock size={12} /> {Math.round(routes.safest.durationSeconds / 60)} mins</span>
                                     <span>{(routes.safest.distanceMeters / 1000).toFixed(1)} km</span>
                                 </div>
+
+                                {safestDetails && (
+                                    <div className="mt-2 text-[11px] text-green-900 space-y-0.5">
+                                        <div>
+                                            Police stations nearby: <span className="font-semibold">{safestDetails.policeStations ?? 0}</span>
+                                        </div>
+                                        <div>
+                                            Hospitals nearby: <span className="font-semibold">{safestDetails.hospitals ?? 0}</span>
+                                        </div>
+                                        <div>
+                                            Streetlight clusters: <span className="font-semibold">{safestDetails.streetlights ?? 0}</span>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg opacity-80 hover:opacity-100 transition-opacity">
@@ -302,6 +332,28 @@ export default function MapView({
                             <Popup>
                                 <strong className="capitalize">{r.category}</strong><br />
                                 Severity: {r.severity}
+                            </Popup>
+                        </Marker>
+                    ))}
+
+                    {/* Police Stations */}
+                    {policeInfra.map(p => (
+                        <Marker key={`police-${p.id}`} position={[p.lat, p.lng]}>
+                            <Popup>
+                                <strong>Police Station</strong><br />
+                                {p.name || 'Unnamed'}<br />
+                                {(p.distance_meters != null) && `${Math.round(p.distance_meters)} m away`}
+                            </Popup>
+                        </Marker>
+                    ))}
+
+                    {/* Hospitals */}
+                    {hospitalInfra.map(h => (
+                        <Marker key={`hospital-${h.id}`} position={[h.lat, h.lng]}>
+                            <Popup>
+                                <strong>Hospital</strong><br />
+                                {h.name || 'Unnamed'}<br />
+                                {(h.distance_meters != null) && `${Math.round(h.distance_meters)} m away`}
                             </Popup>
                         </Marker>
                     ))}

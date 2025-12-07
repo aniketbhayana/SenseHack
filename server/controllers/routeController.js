@@ -185,7 +185,7 @@ async function calculateDetailedRisk(coords, baseRoute) {
             WHERE ST_DWithin(
                 location, 
                 ST_GeographyFromText($1), 
-                500 -- 500m buffer for safety infrastructure
+                2000 -- 2km buffer around the route for safety infrastructure (police, hospitals, lights, CCTV)
             )
             GROUP BY type
         `;
